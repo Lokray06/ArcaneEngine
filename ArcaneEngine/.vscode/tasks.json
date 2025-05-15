@@ -1,0 +1,30 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Build ArcaneEngine (Debug)",
+			"type": "shell",
+			"command": "dotnet build C:\\dev\\ArcaneEngine\\ArcaneEngine\\ArcaneEngine.csproj --configuration Debug",
+			"group": {
+				"kind": "build"
+			},
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"detail": "Builds the ArcaneEngine project in Debug configuration."
+		},
+		{
+			"label": "Build ArcaneEngine (Release)",
+			"type": "shell",
+			"command": "dotnet build C:\\dev\\ArcaneEngine\\ArcaneEngine\\ArcaneEngine.csproj --configuration Release",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			},
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"detail": "Builds the ArcaneEngine project in Release configuration."
+		}
+	]
+}

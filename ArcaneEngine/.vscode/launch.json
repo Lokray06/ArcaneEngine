@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug ArcaneEngine",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "Build ArcaneEngine (Debug)",
+            "program": "${workspaceFolder}/bin/Debug/net8.0/ArcaneEngine.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        },
+        {
+            "name": "Run ArcaneEngine",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "Build ArcaneEngine (Release)",
+            "program": "${workspaceFolder}/bin/Release/net8.0/ArcaneEngine.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "stopAtEntry": false,
+            "console": "internalConsole"
+        }
+    ]
+}
