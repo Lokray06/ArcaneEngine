@@ -25,21 +25,27 @@ namespace Arcane.Rendering
                 // fragmentShaderSource = System.IO.File.ReadAllText(fragmentPath);
                 Debug.LogWarning($"Shader file loading not yet implemented. Paths: {vertexPath}, {fragmentPath}");
                 // For now, use hardcoded basic shaders if paths are given
+
+
                 vertexShaderSource = @"
-                    #version 330 core
-                    layout (location = 0) in vec3 aPosition;
-                    // layout (location = 1) in vec3 aColor; // Example if color is per vertex
-                    // out vec3 vertexColor;
-                    uniform mat4 model;
-                    uniform mat4 view;
-                    uniform mat4 projection;
-                    void main() { gl_Position = projection * view * model * vec4(aPosition, 1.0); /*vertexColor = aColor;*/ }";
+    #version 330 core
+    layout (location = 0) in vec3 aPosition;
+
+    uniform mat4 model; // <--- UNCOMMENT THIS
+    uniform mat4 view;
+    uniform mat4 projection;
+
+    void main() {
+        gl_Position = projection * view * model * vec4(aPosition, 1.0); // <--- USE IT HERE
+    }";
+
                 fragmentShaderSource = @"
-                    #version 330 core
-                    // in vec3 vertexColor;
-                    out vec4 FragColor;
-                    uniform vec3 objectColor; // Example uniform color
-                    void main() { FragColor = vec4(objectColor, 1.0); /*FragColor = vec4(vertexColor, 1.0);*/ }";
+    #version 330 core
+    out vec4 FragColor;
+    uniform vec3 objectColor;
+    void main() {
+        FragColor = vec4(objectColor, 1.0);
+    }";
             }
             else
             {
@@ -128,7 +134,7 @@ namespace Arcane.Rendering
             location = GL.GetUniformLocation(ProgramId, name);
             if (location == -1)
             {
-                // Debug.LogWarning($"Uniform '{name}' not found in shader program {ProgramId}.");
+                Debug.LogWarning($"Uniform '{name}' not found in shader program {ProgramId}.");
             }
             _uniformLocations[name] = location;
             return location;

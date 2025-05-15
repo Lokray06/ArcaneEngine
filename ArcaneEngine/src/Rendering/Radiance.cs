@@ -26,7 +26,7 @@ namespace Arcane.Renderering
 
             if (cameraObject == null || scene == null)
             {
-                // Debug.LogWarning("Radiance.Render: No camera or scene provided.");
+                Debug.LogWarning("Radiance.Render: No camera or scene provided.");
                 return;
             }
 
@@ -87,6 +87,15 @@ namespace Arcane.Renderering
                 mesh.Bind(); // Bind VAO (and EBO)
                 GL.DrawElements(PrimitiveType.Triangles, mesh.IndexCount, DrawElementsType.UnsignedInt, 0);
                 mesh.Unbind(); // Unbind VAO
+
+                Debug.Log($"GameObject: {go.Name}");
+                Debug.Log($"Model Matrix: \n{modelMatrix.ToString()}");
+                Debug.Log($"View Matrix: \n{viewMatrix.ToString()}");
+                Debug.Log($"Projection Matrix: \n{projectionMatrix.ToString()}");
+
+                shader.SetMatrix4("model", modelMatrix);
+                shader.SetMatrix4("view", viewMatrix);
+                shader.SetMatrix4("projection", projectionMatrix);  
 
                 // GL.UseProgram(0); // Unbind shader - usually done once per frame or if switching shaders often
             }

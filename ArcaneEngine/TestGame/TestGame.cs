@@ -70,8 +70,8 @@ namespace TestGame
 
             // 2. Create a Camera GameObject
             GameObject camera = new GameObject("MainCamera");
-            camera.transform.localPosition = new Vector3(0, 1f, 4f);
-            camera.transform.localRotation = Quaternion.FromAxisAngle(Vector3.UnitY, MathHelper.DegreesToRadians(180f)) * Quaternion.FromAxisAngle(Vector3.UnitX, MathHelper.DegreesToRadians(-10f));
+            camera.transform.localPosition = new Vector3(0, 1f, 5f);
+            camera.transform.LookAt(Vector3.Zero, Vector3.UnitY);
             camera.AddComponent<CameraComponent>();
             testScene.AddGameObject(camera);
 

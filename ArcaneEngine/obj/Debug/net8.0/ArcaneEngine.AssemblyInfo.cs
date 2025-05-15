@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("ArcaneEngine")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e7ceea0e90f82d4c9796debde303cb2068c424d3")]
 [assembly: System.Reflection.AssemblyProductAttribute("ArcaneEngine")]
 [assembly: System.Reflection.AssemblyTitleAttribute("ArcaneEngine")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

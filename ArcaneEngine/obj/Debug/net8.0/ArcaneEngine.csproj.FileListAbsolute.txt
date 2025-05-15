@@ -28,3 +28,4 @@ c:\dev\ArcaneEngine\ArcaneEngine\obj\Debug\net8.0\refint\ArcaneEngine.dll
 c:\dev\ArcaneEngine\ArcaneEngine\obj\Debug\net8.0\ArcaneEngine.pdb
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Debug\net8.0\ArcaneEngine.genruntimeconfig.cache
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Debug\net8.0\ref\ArcaneEngine.dll
+C:\dev\ArcaneEngine\ArcaneEngine\obj\Debug\net8.0\ArcaneEngine.sourcelink.json
