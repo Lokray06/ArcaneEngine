@@ -1,0 +1,4 @@
+3D Game engine made in C# using OpenTK Opengl's Wrapper
+
+Topics
+csharp game-engine rendering game-development opentk game-engine-3d rendering-3d-graphics rendering-pipeline
