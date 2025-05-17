@@ -1,116 +1,216 @@
 ﻿using Arcane.SceneSystem;
 using Arcane.Components;
 using Arcane.Core;
-using Arcane.Rendering;
+using Arcane.Rendering; // Consistent namespace
+using Arcane.AssetManager;
 using OpenTK.Mathematics;
+using System.IO;
+using System;
 
 namespace TestGame
 {
     public class TestGame
     {
-        // --- Cube Data (Example) ---
-        // Positions only for this simple example
-        private static readonly float[] _cubeVertexPositions =
-        {
-            // Front face
-            -0.5f, -0.5f,  0.5f, // Bottom-left
-             0.5f, -0.5f,  0.5f, // Bottom-right
-             0.5f,  0.5f,  0.5f, // Top-right
-            -0.5f,  0.5f,  0.5f, // Top-left
-            // Back face
-            -0.5f, -0.5f, -0.5f,
-             0.5f, -0.5f, -0.5f,
-             0.5f,  0.5f, -0.5f,
-            -0.5f,  0.5f, -0.5f
-        };
-        // If using interleaved data (Position + Color like in Radiance's old internal cube)
-        // private static readonly float[] _cubeVerticesInterleaved = { /* ... your full vertex data ... */ };
-
-        private static readonly uint[] _cubeIndices =
-        {
-            0, 1, 2,  0, 2, 3, // Front
-            1, 5, 6,  1, 6, 2, // Right
-            5, 4, 7,  5, 7, 6, // Back
-            4, 0, 3,  4, 3, 7, // Left
-            3, 2, 6,  3, 6, 7, // Top
-            4, 5, 1,  4, 1, 0  // Bottom
-        };
-
         public static void Main(string[] args)
         {
-            Debug.Log("Program Start: Initializing Arcane Engine...");
-
+            Debug.Log("Program Start: Initializing Arcane Engine for PBR Test with IBL...");
             Engine engineInstance = new Engine();
-            engineInstance.Initialize(showFpsInTitle: true); // Show FPS in title
+            engineInstance.Initialize(4, showFpsInTitle: true); // MSAA samples, show FPS
 
-            // --- Create Shared Assets (Mesh, Shader, Material) ---
-            // Define vertex attributes for a simple position-only mesh
-            // The Shader class now has a basic hardcoded shader.
-            // The Mesh class constructor needs attributes.
-            VertexAttribute[] cubeAttributes = {
-                // Location 0: Position (3 floats), Stride = 3*sizeof(float), Offset = 0
-                new VertexAttribute(0, 3, OpenTK.Graphics.OpenGL4.VertexAttribPointerType.Float, false, 3 * sizeof(float), 0)
+            // --- Determine Project Root and Shader Paths ---
+            string projectRootPath = Path.GetFullPath(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", ".."));
+            string pbrVertexShaderPath = Path.Combine(projectRootPath, "res", "shaders", "radiance", "main.vert");
+            string pbrFragmentShaderPath = Path.Combine(projectRootPath, "res", "shaders", "radiance", "main.frag");
+
+            Shader pbrShader = new Shader(pbrVertexShaderPath, pbrFragmentShaderPath, isFilePath: true);
+            if (pbrShader.ProgramId == 0)
+            {
+                Debug.LogError("Failed to load PBR shaders. Exiting.");
+                return;
+            }
+
+            // --- Load Cube Mesh from OBJ ---
+            string cubeObjRelativePath = Path.Combine("Models", "box.obj");
+            string fullCubeObjPathForRegistry = Path.Combine(projectRootPath, "TestGame", "Assets", cubeObjRelativePath);
+            Asset cubeAssetMetadata = AssetRegistry.GetAssetMetadataByPath(fullCubeObjPathForRegistry);
+            Mesh cubeGpuMesh = null;
+            if (cubeAssetMetadata != null)
+            {
+                cubeGpuMesh = new Arcane.Rendering.Mesh(cubeAssetMetadata);
+                if (!cubeGpuMesh.IsLoadedCorrectly())
+                {
+                    Debug.LogError($"Failed to create/load GPU mesh from asset: {cubeAssetMetadata.Name}. Check OBJ file.");
+                    pbrShader.Dispose();
+                    return;
+                }
+            }
+            else
+            {
+                Debug.LogError($"OBJ asset metadata not found: {fullCubeObjPathForRegistry}. Ensure it's in TestGame/Assets/Models/.");
+                pbrShader.Dispose();
+                return;
+            }
+
+            // --- Load Cube Mesh from OBJ ---
+            string sphereObjRelativePath = Path.Combine("Models", "sphere.obj");
+            string sphereObjPathForRegistry = Path.Combine(projectRootPath, "TestGame", "Assets", sphereObjRelativePath);
+            Asset sphereAssetMetadata = AssetRegistry.GetAssetMetadataByPath(sphereObjPathForRegistry);
+            Mesh sphereGpuMesh = null;
+            if (cubeAssetMetadata != null)
+            {
+                sphereGpuMesh = new Arcane.Rendering.Mesh(sphereAssetMetadata);
+                if (!sphereGpuMesh.IsLoadedCorrectly())
+                {
+                    Debug.LogError($"Failed to create/load GPU mesh from asset: {sphereAssetMetadata.Name}. Check OBJ file.");
+                    pbrShader.Dispose();
+                    return;
+                }
+            }
+            else
+            {
+                Debug.LogError($"OBJ asset metadata not found: {sphereObjPathForRegistry}. Ensure it's in TestGame/Assets/Models/.");
+                pbrShader.Dispose();
+                return;
+            }
+
+            // --- Load Textures for Shiny Red Plastic Material ---
+            string redAlbedoTextureRelativePath = Path.Combine("Textures", "Prototype", "Red", "texture_01.png");
+            string fullRedTexturePathForRegistry = Path.Combine(projectRootPath, "TestGame", "Assets", redAlbedoTextureRelativePath);
+            Asset redTextureMetadata = AssetRegistry.GetAssetMetadataByPath(fullRedTexturePathForRegistry);
+            Texture redAlbedoGpuTexture = null;
+            if (redTextureMetadata != null)
+            {
+                redAlbedoGpuTexture = new Texture(redTextureMetadata);
+                if (redAlbedoGpuTexture.Id == 0) redAlbedoGpuTexture = null;
+            }
+            else { Debug.LogWarning($"Texture asset metadata not found: {fullRedTexturePathForRegistry}"); }
+
+            // --- Load Textures for "used-stainless-steel-bl" Material ---
+            string steelTextureBasePath = Path.Combine("Textures", "PBR", "used-stainless-steel-bl");
+
+            Texture steelAlbedoMap = LoadTextureHelper(projectRootPath, Path.Combine(steelTextureBasePath, "used-stainless-steel_albedo.png"));
+            Texture steelMetallicMap = LoadTextureHelper(projectRootPath, Path.Combine(steelTextureBasePath, "used-stainless-steel_metallic.png"));
+            Texture steelRoughnessMap = LoadTextureHelper(projectRootPath, Path.Combine(steelTextureBasePath, "used-stainless-steel_roughness.png"));
+            Texture steelNormalMap = LoadTextureHelper(projectRootPath, Path.Combine(steelTextureBasePath, "used-stainless-steel_normal-ogl.png"));
+            Texture steelAoMap = LoadTextureHelper(projectRootPath, Path.Combine(steelTextureBasePath, "used-stainless-steel_ao.png"));
+            // Height map (used-stainless-steel_height.png) is not directly used by the current PBR shader,
+            // but could be used for parallax mapping or displacement mapping in the future.
+
+            // --- Create PBR Materials ---
+            Material shinyRedPlastic = new Material(pbrShader)
+            {
+                AlbedoMap = null,
+                AlbedoColor = (redAlbedoGpuTexture == null) ? new Vector3(1.0f, 0.2f, 0.2f) : Vector3.One,
+                MetallicFactor = 1.0f, // Non-metallic
+                RoughnessFactor = 1f,
+                AoFactor = 1.0f,
+                UseNormalMap = false // Assuming prototype red doesn't have a specific normal map
             };
-            // If using interleaved data (e.g., Pos+Color), the stride and offsets would change.
-            // For example, if Pos(3)+Color(3): stride = 6*sizeof(float)
-            // Pos: loc 0, size 3, offset 0
-            // Color: loc 1, size 3, offset 3*sizeof(float)
 
-            Mesh cubeMesh = new Mesh(_cubeVertexPositions, _cubeIndices, cubeAttributes);
+            Material stainlessSteelMaterial = new Material(pbrShader)
+            {
+                AlbedoMap = steelAlbedoMap,
+                AlbedoColor = (steelAlbedoMap == null) ? new Vector3(0.56f, 0.57f, 0.58f) : Vector3.One, // Typical steel albedo if map fails
 
-            // Basic Shader (using the hardcoded one in Shader.cs for now)
-            Shader basicShader = new Shader("path/to/vert.glsl", "path/to/frag.glsl", isFilePath: true); // Paths are ignored for now
+                MetallicMap = steelMetallicMap,
+                MetallicFactor = (steelMetallicMap == null) ? 1.0f : 1.0f, // Steel is metallic, map overrides factor if present
 
-            Material redMaterial = new Material(basicShader) { Color = new Vector3(1.0f, 0.2f, 0.2f) };
-            Material blueMaterial = new Material(basicShader) { Color = new Vector3(0.2f, 0.2f, 1.0f) };
+                RoughnessMap = steelRoughnessMap,
+                RoughnessFactor = (steelRoughnessMap == null) ? 0.3f : 1.0f, // Map overrides factor
+
+                NormalMap = steelNormalMap,
+                UseNormalMap = (steelNormalMap != null),
+
+                AoMap = steelAoMap,
+                AoFactor = (steelAoMap == null) ? 1.0f : 1.0f, // Map overrides factor
+            };
 
 
-            // 1. Create a new scene
-            Scene testScene = new Scene("DataDrivenTestScene");
+            // --- Scene Setup ---
+            Scene testScene = new Scene("PBR_IBL_Full_Textured_Steel_Scene");
 
-            // 2. Create a Camera GameObject
-            GameObject camera = new GameObject("MainCamera");
-            camera.transform.localPosition = new Vector3(0, 1f, 5f);
-            camera.transform.LookAt(Vector3.Zero, Vector3.UnitY);
-            camera.AddComponent<CameraComponent>();
-            testScene.AddGameObject(camera);
+            GameObject cameraGO = new GameObject("MainCamera");
+            cameraGO.transform.localPosition = new Vector3(0, 1f, 5f);
+            cameraGO.transform.LookAt(Vector3.Zero, Vector3.UnitY);
+            var camComp = cameraGO.AddComponent<CameraComponent>();
+            camComp.FarPlane = 2000f;
+            cameraGO.AddComponent<CameraController>();
+            testScene.AddGameObject(cameraGO);
 
-            // 3. Create a spinning cube GameObject
-            GameObject spinningCubeGO = new GameObject("SpinningRedCube");
-            spinningCubeGO.transform.localPosition = new Vector3(-1.0f, 0, 0);
-            var spinner = spinningCubeGO.AddComponent<SpinnerComponent>();
-            spinner.RotationSpeed = 45.0f;
-            // Add MeshRenderer to make it visible
-            var spinningCubeRenderer = spinningCubeGO.AddComponent<MeshRendererComponent>();
-            spinningCubeRenderer.Mesh = cubeMesh; // Use the shared mesh
-            spinningCubeRenderer.Material = redMaterial; // Use the red material
-            testScene.AddGameObject(spinningCubeGO);
+            GameObject pbrCube1 = new GameObject("ShinyRedPlasticCube");
+            pbrCube1.transform.localPosition = new Vector3(-1.5f, 0.5f, 0);
+            pbrCube1.transform.localScale = new Vector3(1.0f, 1.0f, 1.0f); // Adjusted scale
+            // pbrCube1.AddComponent<SpinnerComponent>().RotationSpeed = 20.0f;
+            var pbrRenderer1 = pbrCube1.AddComponent<MeshRendererComponent>();
+            pbrRenderer1.Mesh = cubeGpuMesh;
+            pbrRenderer1.Material = shinyRedPlastic;
+            testScene.AddGameObject(pbrCube1);
 
-            // 4. Create a static child cube
-            GameObject childCubeGO = new GameObject("StaticBlueChildCube");
-            childCubeGO.transform.SetParent(spinningCubeGO.transform, worldPositionStays: false);
-            childCubeGO.transform.localPosition = new Vector3(1.5f, 0, 0);
-            childCubeGO.transform.localScale = new Vector3(0.5f, 0.5f, 0.5f);
-            var childCubeRenderer = childCubeGO.AddComponent<MeshRendererComponent>();
-            childCubeRenderer.Mesh = cubeMesh; // Reuse the same mesh
-            childCubeRenderer.Material = blueMaterial; // Use the blue material
-            testScene.AddGameObject(childCubeGO); // Add to scene so it's processed (if scene doesn't auto-process children of added GOs)
+            GameObject pbrCube2 = new GameObject("StainlessSteelCube");
+            pbrCube2.transform.localPosition = new Vector3(1.5f, 0.5f, 0);
+            pbrCube2.transform.localScale = new Vector3(1.0f, 1.0f, 1.0f); // Adjusted scale
+            // pbrCube2.AddComponent<SpinnerComponent>().RotationSpeed = -25.0f;
+            var pbrRenderer2 = pbrCube2.AddComponent<MeshRendererComponent>();
+            pbrRenderer2.Mesh = sphereGpuMesh;
+            pbrRenderer2.Material = stainlessSteelMaterial;
+            testScene.AddGameObject(pbrCube2);
 
-            // 5. Load the scene using SceneManager
             SceneManager.LoadScene(testScene);
-
-            // 6. Run the engine loop
             engineInstance.RunLoop();
 
-            // Cleanup (Engine.CleanUp calls SceneManager.DestroyCurrentScene)
-            // Assets like Mesh, Shader, Material might need explicit disposal if managed outside the scene
-            // For this example, let's assume they are disposed when the app closes or manually.
-            // A proper AssetManager would handle this.
-            cubeMesh.Dispose();
-            basicShader.Dispose();
-            // Materials don't own shaders in this setup, so no material.Dispose() needed unless they hold other resources.
+            // --- Cleanup ---
+            pbrShader.Dispose();
+            cubeGpuMesh?.Dispose();
+            redAlbedoGpuTexture?.Dispose();
 
-            Debug.Log("Program Main: Finished.");
+            steelAlbedoMap?.Dispose();
+            steelMetallicMap?.Dispose();
+            steelRoughnessMap?.Dispose();
+            steelNormalMap?.Dispose();
+            steelAoMap?.Dispose();
+
+            // Materials are IDisposable. Since the pbrShader is shared, materials should not dispose it.
+            // The Material class's Dispose method was already updated not to dispose shared shaders if not owned.
+            // If materials created other GL resources themselves, they'd be disposed here or by the scene.
+            // shinyRedPlastic.Dispose(); // Not strictly needed if it doesn't own unique GL resources beyond textures already handled
+            // stainlessSteelMaterial.Dispose();
+
+            Debug.Log("Program Main: Finished PBR IBL Test with Full PBR Textures.");
+        }
+
+        // Helper method to load textures to reduce boilerplate
+        private static Texture LoadTextureHelper(string projectRoot, string relativeTexturePath)
+        {
+            string fullPath = Path.Combine(projectRoot, "TestGame", "Assets", relativeTexturePath);
+            Asset textureAssetMetadata = AssetRegistry.GetAssetMetadataByPath(fullPath);
+            Texture gpuTexture = null;
+            if (textureAssetMetadata != null)
+            {
+                gpuTexture = new Texture(textureAssetMetadata);
+                if (gpuTexture.Id == 0)
+                {
+                    Debug.LogWarning($"Failed to load GPU texture for: {relativeTexturePath}");
+                    gpuTexture = null;
+                }
+                else
+                {
+                    Debug.Log($"Successfully loaded texture: {relativeTexturePath}");
+                }
+            }
+            else
+            {
+                Debug.LogWarning($"Texture asset metadata not found: {fullPath}");
+            }
+            return gpuTexture;
+        }
+    }
+
+    // Helper extension method for Mesh
+    public static class MeshExtensions
+    {
+        public static bool IsLoadedCorrectly(this Arcane.Rendering.Mesh mesh)
+        {
+            return mesh != null && mesh.VaoId != 0 && mesh.IndexCount > 0 && mesh.VertexCount > 0;
         }
     }
 }

@@ -1,0 +1,75 @@
+ArcaneGameSolution/
+├── ArcaneEngine/
+│   │                                                    
+│   ├── ArcaneEngine.csproj                             
+│   │                                                    
+│   ├── Core/                   (Namespace: ArcaneEngine.Core)
+│   │   ├── Engine.cs
+│   │   ├── Window.cs
+│   │   ├── Time.cs
+│   │   ├── InputSystem.cs      // Handles input polling and events
+│   │   ├── SceneManager.cs     // Manages loading/unloading/switching scenes
+│   │   └── AssetManager.cs     // Handles loading and managing assets (textures, models, etc.)
+│   │
+│   ├── Math/                   (Namespace: ArcaneEngine.Math)
+│   │   └── ...                 // Custom math utilities, if any beyond OpenTK.Mathematics
+│   │
+│   ├── Scene/                  (Namespace: ArcaneEngine.Scene)
+│   │   ├── Scene.cs
+│   │   ├── GameObject.cs
+│   │   ├── Component.cs        // Abstract base for all components
+│   │   ├── Transform.cs        // Component for position, rotation, scale
+│   │   └── Components/         (Namespace: ArcaneEngine.Scene.Components)
+│   │       ├── Camera.cs       // Camera component
+│   │       ├── MeshRenderer.cs // Renders a Mesh
+│   │       ├── SpriteRenderer.cs// Renders a 2D Sprite
+│   │       ├── Light.cs        // Light component (Point, Directional, Spot)
+│   │       ├── Rigidbody.cs    // Physics body component
+│   │       ├── Collider.cs     // Base collider component
+│   │       ├── BoxCollider.cs
+│   │       ├── SphereCollider.cs
+│   │       ├── AudioSource.cs  // Audio playback component
+│   │       └── Script.cs       // Base class for user-defined game logic scripts (was ScriptBehaviour)
+│   │
+│   ├── Rendering/              (Namespace: ArcaneEngine.Rendering)
+│   │   ├── RenderSystem.cs     // Manages the overall rendering pipeline and strategy
+│   │   ├── Shader.cs           // Represents a compiled shader program
+│   │   ├── Texture.cs          // Represents a texture asset
+│   │   ├── Mesh.cs             // Represents a 3D mesh asset
+│   │   └── Material.cs         // Defines surface properties, shader, and textures
+│   │
+│   ├── Physics/                (Namespace: ArcaneEngine.Physics)
+│   │   └── PhysicsSystem.cs    // Manages the physics simulation loop and interactions
+│   │
+│   ├── Audio/                  (Namespace: ArcaneEngine.Audio)
+│   │   ├── AudioSystem.cs      // Manages loading sounds and playing audio
+│   │   └── AudioClip.cs        // Represents a sound asset
+│   │
+│   ├── UI/                     (Namespace: ArcaneEngine.UI)
+│   │   ├── UISystem.cs         // Manages UI rendering and event handling
+│   │   └── Elements/           (Namespace: ArcaneEngine.UI.Elements)
+│   │       ├── UIElement.cs    // Base UI class
+│   │       ├── Button.cs
+│   │       ├── TextBlock.cs
+│   │       └── ...             // Image.cs, Panel.cs, etc.
+│   │
+│   └── Utils/                  (Namespace: ArcaneEngine.Utils)
+│       ├── Logger.cs
+│       ├── FileSystem.cs
+│       └── Serialization.cs    // For scene/asset saving & loading
+│
+└── MyArcaneGame/               // Your actual game project (Separate C# Project)
+    ├── MyArcaneGame.csproj
+    ├── Program.cs              // Initializes and runs the ArcaneEngine for the game
+    ├── Assets/                 // Game-specific raw assets
+    │   ├── Models/
+    │   ├── Textures/
+    │   ├── Shaders/            // Custom game shaders
+    │   ├── Sounds/
+    │   └── Scenes/             // Scene definition files (e.g., JSON, XML, or custom format)
+    ├── GameSpecificCode/       // Folder for game-specific systems or managers
+    │   ├── GameManager.cs
+    │   └── ...
+    └── Scripts/                // User-defined game logic scripts (attach to GameObjects)
+        ├── PlayerController.cs // Inherits from ArcaneEngine.Scene.Components.Script
+        └── EnemyAI.cs          // Inherits from ArcaneEngine.Scene.Components.Script

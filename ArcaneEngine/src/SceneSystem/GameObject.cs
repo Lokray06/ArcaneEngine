@@ -1,8 +1,8 @@
 // Arcane/SceneSystem/GameObject.cs
-using System; // For ArgumentNullException, etc.
+using System;
 using System.Collections.Generic;
-using System.Linq; // For FirstOrDefault, Where, etc.
-using Arcane.Components; // Assuming your Transform class is here
+using System.Linq;
+using Arcane.Components; // For Transform
 
 namespace Arcane.SceneSystem
 {
@@ -12,31 +12,18 @@ namespace Arcane.SceneSystem
         private readonly List<Component> _components = new List<Component>();
         private readonly Transform _transform; // Every GameObject has a Transform
 
-        private bool _activeSelf = true; // Is this GameObject locally active?
+        private bool _activeSelf = true;
 
-        // --- Properties ---
         public string Name
         {
             get { return _name; }
             set { _name = string.IsNullOrEmpty(value) ? "Unnamed GameObject" : value; }
         }
 
-        /// <summary>
-        /// The Transform attached to this GameObject (Read-Only).
-        /// Every GameObject has a Transform.
-        /// </summary>
-        public Transform transform => _transform; // Shorter C# 6+ syntax for read-only property
+        public Transform transform => _transform;
 
-        /// <summary>
-        /// The local active state of this GameObject.
-        /// Use SetActive() to change this.
-        /// </summary>
         public bool activeSelf => _activeSelf;
 
-        /// <summary>
-        /// Is the GameObject active in the scene?
-        /// This is true if activeSelf is true and all its parents are activeInHierarchy.
-        /// </summary>
         public bool activeInHierarchy
         {
             get
@@ -47,122 +34,99 @@ namespace Arcane.SceneSystem
             }
         }
 
-        // --- Constructors ---
+        // Constructor
         public GameObject(string name = "GameObject")
         {
-            Name = name; // Use the property to ensure validation
-            _components = new List<Component>();
-
-            // Every GameObject must have a Transform. Add it by default.
-            _transform = AddComponentInternal<Transform>();
-            // The line `private Transform _transform = new Transform();` in your original
-            // is also fine, but we need to ensure its `gameObject` is set.
-            // Let's refine this:
+            Name = name;
+            // Initialize the Transform component first and add it to the list.
+            // The Transform's gameObject property is set here.
+            _transform = new Transform { gameObject = this }; // Ensure gameObject is set immediately
+            _components.Add(_transform); // Add transform to the component list
         }
 
-        // Corrected constructor for better Transform initialization
         public GameObject(string name, params Type[] componentTypes) : this(name) // Calls the base constructor
         {
             foreach (var type in componentTypes)
             {
                 if (typeof(Component).IsAssignableFrom(type))
                 {
-                    // This is a simplified AddComponent by Type, assumes new() constraint if used.
-                    // For now, let's assume these are just for example and primary way is AddComponent<T>
-                    if (type == typeof(Transform)) continue; // Transform already added
+                    if (type == typeof(Transform)) continue; // Transform already added by the base constructor
 
                     Component newComp = (Component)Activator.CreateInstance(type);
-                    AddComponent(newComp);
+                    AddComponent(newComp); // Use the instance-adding AddComponent
                 }
             }
         }
 
-
         // --- Component Management ---
 
         /// <summary>
-        /// Adds a component of type T to the GameObject.
+        /// Adds a new component of type T to the GameObject.
         /// </summary>
-        /// <typeparam name="T">The type of Component to add.</typeparam>
-        /// <returns>The added component.</returns>
+        /// <typeparam name="T">The type of Component to add. Must have a new() constraint.</typeparam>
+        /// <returns>The added component, or the existing Transform if T is Transform.</returns>
         public T AddComponent<T>() where T : Component, new()
         {
-            // Prevent adding multiple Transforms
-            if (typeof(T) == typeof(Transform) && _transform != null)
+            if (typeof(T) == typeof(Transform))
             {
-                Console.WriteLine($"Warning: GameObject '{Name}' already has a Transform component. Returning existing one.");
+                // Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Attempted to add another Transform. Returning existing one.");
                 return _transform as T;
             }
+
+            // Optional: Check if a component of the same type already exists if you want to disallow duplicates.
+            // Example:
+            // if (_components.Any(c => c.GetType() == typeof(T)))
+            // {
+            //     Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Component of type {typeof(T).Name} already exists. Returning existing one.");
+            //     return _components.First(c => c.GetType() == typeof(T)) as T;
+            // }
 
             T newComponent = new T();
             newComponent.gameObject = this; // Set the back-reference
             _components.Add(newComponent);
 
-            // Optional: If engine is running and GameObject is active, call OnAwake/OnEnable here
-            // if (this.activeInHierarchy && Engine.IsRunningOrInitialized) { newComponent.OnAwake(); newComponent.OnEnable(); }
-            // For simplicity, we'll assume lifecycle methods are called by a SceneManager or Engine loop.
-            // However, OnAwake is often called immediately upon component addition or instantiation.
-            // Let's assume an immediate OnAwake call for now if it hasn't been called.
-            // This requires tracking if OnAwake was called or having the SceneManager handle it.
-            // For now, we'll keep it simple: just add. The Scene will call OnAwake later.
+            // The Scene system (Scene.cs and SceneManager.cs) is responsible for calling
+            // OnAwake and Start at the appropriate times (e.g., when GameObject is added to an active scene
+            // or during scene initialization).
 
             return newComponent;
         }
-
-        /// <summary>
-        /// Internal helper to add component and ensure gameObject is set, used by constructor for Transform.
-        /// </summary>
-        private T AddComponentInternal<T>() where T : Component, new()
-        {
-            T newComponent = new T();
-            newComponent.gameObject = this;
-            // Note: _components might not be initialized if called before base constructor logic fully completes.
-            // This is why direct _transform initialization in field or simple constructor is safer.
-            // Let's stick to the initial _transform creation in the field or a dedicated step in constructor.
-
-            // Corrected approach for _transform initialization:
-            // The _transform field is initialized first, then its gameObject property is set.
-            // This method is more for generic components.
-
-            // The `_transform` is special. It's better to initialize it directly.
-            // See the constructor for how it's handled. This comment refers to the original thought process.
-            _components.Add(newComponent);
-            return newComponent;
-        }
-
 
         /// <summary>
         /// Adds an existing component instance to the GameObject.
-        /// Usually used internally or when creating GameObjects programmatically with pre-made components.
         /// </summary>
+        /// <typeparam name="T">The type of the component.</typeparam>
+        /// <param name="component">The component instance to add.</param>
+        /// <returns>The added component, or null/existing if issues occur.</returns>
         public T AddComponent<T>(T component) where T : Component
         {
             if (component == null)
             {
-                // Or throw ArgumentNullException
-                Console.WriteLine("Error: Cannot add a null component.");
+                Arcane.Core.Debug.LogError($"GameObject '{Name}': Cannot add a null component.");
                 return null;
             }
             if (component.gameObject != null && component.gameObject != this)
             {
-                // Or throw InvalidOperationException
-                Console.WriteLine($"Error: Component is already attached to another GameObject ('{component.gameObject.Name}').");
+                Arcane.Core.Debug.LogError($"GameObject '{Name}': Component of type {component.GetType().Name} is already attached to another GameObject ('{component.gameObject.Name}').");
                 return null;
             }
-            if (typeof(T) == typeof(Transform) && _transform != null && component != _transform)
+            if (component is Transform && component != _transform) // Check if it's a Transform instance but not THE transform
             {
-                Console.WriteLine($"Warning: GameObject '{Name}' already has a Transform. Cannot add another one.");
-                return _transform as T; // Or throw an error
+                Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Attempted to add another Transform instance. Use the existing 'transform' property.");
+                return _transform as T; // Return the existing transform
             }
 
-            component.gameObject = this;
+            component.gameObject = this; // Ensure back-reference is set
             if (!_components.Contains(component))
             {
                 _components.Add(component);
             }
+            else if (component != _transform) // Avoid warning if the transform was re-added (though constructor handles it)
+            {
+                Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Component instance of type {component.GetType().Name} is already present.");
+            }
             return component;
         }
-
 
         /// <summary>
         /// Gets the first component of type T attached to this GameObject.
@@ -173,138 +137,174 @@ namespace Arcane.SceneSystem
         {
             if (typeof(T) == typeof(Transform))
             {
-                return _transform as T; // Optimization and correctness for Transform
+                return _transform as T; // Optimization for the common case
             }
-
-            foreach (Component component in _components)
-            {
-                if (component is T typedComponent)
-                {
-                    return typedComponent;
-                }
-            }
-            return null;
+            // Iterate through components to find the first matching type.
+            // Using Linq's OfType<T>().FirstOrDefault() is clean and efficient enough for most cases.
+            return _components.OfType<T>().FirstOrDefault();
         }
 
         /// <summary>
         /// Gets all components of type T attached to this GameObject.
         /// </summary>
         /// <typeparam name="T">The type of Component to retrieve.</typeparam>
-        /// <returns>A list of components of type T. The list is a new copy.</returns>
+        /// <returns>A new list of components of type T. Returns an empty list if none are found.</returns>
         public List<T> GetComponents<T>() where T : Component
         {
-            List<T> foundComponents = new List<T>();
-            if (typeof(T) == typeof(Transform) && _transform != null)
-            {
-                foundComponents.Add(_transform as T);
-                // Typically a GameObject only has one Transform, so we might stop here
-                // or continue if for some reason other Transform-derived components could exist.
-                // For strict "only one transform" rule, we'd just return this list.
-                return foundComponents;
-            }
-
-            foreach (Component component in _components)
-            {
-                if (component is T typedComponent)
-                {
-                    foundComponents.Add(typedComponent);
-                }
-            }
-            return foundComponents;
+            // Using Linq's OfType<T>().ToList() to filter and create a new list.
+            return _components.OfType<T>().ToList();
         }
 
-        // GetComponentInChildren, GetComponentsInChildren, RemoveComponent would be added similarly.
-        // For brevity, I'll skip their full implementation here, but the pattern is:
-        // - GetComponentInChildren: Check self, then recursively check children's transforms.
-        // - RemoveComponent: Find the component, call OnDestroy if it exists, remove from list.
+        /// <summary>
+        /// Gets an enumerable collection of all components attached to this GameObject,
+        /// including the Transform. This is primarily for internal use by the Scene system
+        /// to iterate over components for lifecycle method calls (Awake, Start, Update, etc.).
+        /// </summary>
+        /// <returns>An enumerable of all components.</returns>
+        internal IEnumerable<Component> GetAllComponents()
+        {
+            // Returning _components directly as IEnumerable is fine for foreach loops.
+            // If external modification is a concern and this were public,
+            // returning _components.AsReadOnly() or a new list might be considered.
+            return _components;
+        }
 
-        // In Arcane/SceneSystem/GameObject.cs
+        /// <summary>
+        /// Removes the first component of type T found on this GameObject.
+        /// The Transform component cannot be removed.
+        /// </summary>
+        /// <typeparam name="T">The type of component to remove.</typeparam>
+        public void RemoveComponent<T>() where T : Component
+        {
+            if (typeof(T) == typeof(Transform))
+            {
+                Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Cannot remove the Transform component.");
+                return;
+            }
 
-        // Make sure you have this field for your main transform:
-        // private readonly Transform _transformComponent; 
-        // And the public property:
-        // public Transform transform => _transformComponent;
+            T componentToRemove = GetComponent<T>(); // Find the component
+            if (componentToRemove != null)
+            {
+                componentToRemove.OnDestroy(); // Call its OnDestroy lifecycle method
+                _components.Remove(componentToRemove); // Remove from the list
+            }
+        }
+
+        /// <summary>
+        /// Removes the specified component instance from this GameObject.
+        /// The Transform component cannot be removed.
+        /// </summary>
+        /// <param name="component">The component instance to remove.</param>
+        public void RemoveComponent(Component component)
+        {
+            if (component == null)
+            {
+                Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Attempted to remove a null component.");
+                return;
+            }
+            if (component == _transform)
+            {
+                Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Cannot remove the Transform component.");
+                return;
+            }
+
+            if (_components.Contains(component))
+            {
+                component.OnDestroy(); // Call its OnDestroy lifecycle method
+                _components.Remove(component); // Remove from the list
+            }
+            else
+            {
+                Arcane.Core.Debug.LogWarning($"GameObject '{Name}': Attempted to remove component of type {component.GetType().Name} that is not attached.");
+            }
+        }
 
         /// <summary>
         /// Sets the local active state of the GameObject.
-        /// This can affect the activeInHierarchy state of this GameObject and all its children.
-        /// OnEnable and OnDisable will be called on this GameObject's components if its
-        /// activeInHierarchy state changes as a result of this call.
+        /// This will also trigger OnEnable/OnDisable on its components and propagate
+        /// the active state change to its children if its activeInHierarchy state changes.
         /// </summary>
         /// <param name="value">True to activate, false to deactivate.</param>
         public void SetActive(bool value)
         {
-            if (_activeSelf == value) return; // No change in local state, so no change in hierarchy state from this call
+            if (_activeSelf == value) return; // No change in local state
 
-            // Determine the activeInHierarchy state *before* changing _activeSelf
-            // This is crucial to detect if this specific SetActive call causes a transition.
-            bool wasActiveInHierarchy = this.activeInHierarchy;
+            bool wasActiveInHierarchy = this.activeInHierarchy; // Check state *before* local change
+            _activeSelf = value; // Apply local change
+            bool isNowActiveInHierarchy = this.activeInHierarchy; // Check state *after* local change
 
-            _activeSelf = value; // Apply the local state change
-
-            // Determine the activeInHierarchy state *after* changing _activeSelf
-            bool isNowActiveInHierarchy = this.activeInHierarchy;
-
-            // Only trigger OnEnable/OnDisable if the overall activeInHierarchy state of this GameObject changed.
-            if (wasActiveInHierarchy != isNowActiveInHierarchy)
+            if (wasActiveInHierarchy != isNowActiveInHierarchy) // If the effective hierarchy state changed
             {
-                if (isNowActiveInHierarchy) // Transitioned from Inactive (in hierarchy) to Active (in hierarchy)
+                // Call OnEnable or OnDisable on all components of this GameObject
+                foreach (var component in _components) // _components includes the Transform
                 {
-                    // Call OnEnable on the Transform component itself
-                    if (this.transform != null) // 'transform' is the public property
-                    {
-                        this.transform.OnEnable();
-                    }
-                    // Call OnEnable on all other components in the list
-                    foreach (var component in _components)
+                    if (isNowActiveInHierarchy)
                     {
                         component.OnEnable();
                     }
-
-                    // TODO: Propagate activation to children.
-                    // Children that are activeSelf should now also check if their activeInHierarchy state changed.
-                    // This typically involves recursively calling a similar logic or having them subscribe to parent changes.
-                    // For a simpler immediate effect, you could iterate children and call an "UpdateActiveStatus" method on them.
-                    // Example:
-                    // foreach(Transform childT in this.transform.Children) { childT.gameObject.HandleParentActivationChange(true); }
-
-                }
-                else // Transitioned from Active (in hierarchy) to Inactive (in hierarchy)
-                {
-                    // Call OnDisable on the Transform component itself
-                    if (this.transform != null)
-                    {
-                        this.transform.OnDisable();
-                    }
-                    // Call OnDisable on all other components in the list
-                    foreach (var component in _components)
+                    else
                     {
                         component.OnDisable();
                     }
+                }
 
-                    // TODO: Propagate deactivation to children.
-                    // All children are now effectively inactive in the hierarchy.
-                    // Example:
-                    // foreach(Transform childT in this.transform.Children) { childT.gameObject.HandleParentActivationChange(false); }
+                // Propagate the change to children. Each child will then determine
+                // if its own activeInHierarchy state changed.
+                foreach (Transform childT in this.transform.Children)
+                {
+                    childT.gameObject.PropagateActiveStateChange(isNowActiveInHierarchy);
                 }
             }
-            // Note: If activeInHierarchy didn't change (e.g., a parent is inactive, so this GO remains inactiveInHierarchy
-            // regardless of its _activeSelf), then OnEnable/OnDisable for *this* object's components are NOT called here.
-            // They would be called if the PARENT's SetActive call caused this object to transition.
         }
 
-        // Initialization for the _transform field, ensuring its gameObject is set.
-        // This replaces the direct initializer `private Transform _transform = new Transform();`
-        // to ensure `gameObject` is set on the Transform.
-        // The constructor now handles this:
-        public GameObject() : this("GameObject") // Default constructor calls the one with name
+        /// <summary>
+        /// Internal method called by a parent GameObject when its activeInHierarchy state changes.
+        /// This method determines if the current GameObject's activeInHierarchy state
+        /// also changes as a result and triggers OnEnable/OnDisable on its components accordingly,
+        /// then propagates the change to its own children.
+        /// </summary>
+        /// <param name="parentIsNowActiveInHierarchy">The new activeInHierarchy state of the parent.</param>
+        internal void PropagateActiveStateChange(bool parentIsNowActiveInHierarchy)
         {
-            // The primary constructor now handles transform creation.
-            // We need to ensure _transform is non-null.
-            // The constructor `public GameObject(string name = "GameObject")` in this version
-            // needs to ensure _transform is properly initialized and its gameObject is set.
+            // The activeInHierarchy getter already considers the parent's state.
+            // We need to see if our state *changed* because of the parent's change.
+            bool wasActiveInHierarchy = this.activeInHierarchy;
 
-            // Let's refine constructors again for clarity on Transform initialization.
+            // To correctly assess the 'new' state, we must consider our _activeSelf
+            // in conjunction with the parent's new state.
+            // The activeInHierarchy getter already does this.
+            bool isNowActiveInHierarchy = _activeSelf && parentIsNowActiveInHierarchy;
+            // If this GO is locally inactive (_activeSelf = false), it remains inactive in hierarchy.
+            // If it's locally active, its hierarchy status depends on the parent.
+
+            // If this object was active but now its path to root is broken OR it itself is set inactive
+            if (wasActiveInHierarchy && !isNowActiveInHierarchy)
+            {
+                foreach (var component in _components)
+                {
+                    component.OnDisable();
+                }
+                // If this GO becomes inactive in hierarchy, all its children also do.
+                foreach (Transform childT in this.transform.Children)
+                {
+                    childT.gameObject.PropagateActiveStateChange(false);
+                }
+            }
+            // If this object was inactive but now its path to root is active AND it itself is active
+            else if (!wasActiveInHierarchy && isNowActiveInHierarchy)
+            {
+                foreach (var component in _components)
+                {
+                    component.OnEnable();
+                }
+                // If this GO becomes active in hierarchy, propagate to children.
+                // They will decide based on their own _activeSelf.
+                foreach (Transform childT in this.transform.Children)
+                {
+                    childT.gameObject.PropagateActiveStateChange(true);
+                }
+            }
+            // If no change in this object's activeInHierarchy state, do nothing further here.
         }
     }
 }

@@ -22,6 +22,7 @@ C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEngine.GeneratedMSBuil
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEngine.AssemblyInfoInputs.cache
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEngine.AssemblyInfo.cs
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEngine.csproj.CoreCompileInputs.cache
+C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEngine.sourcelink.json
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEn.277D244E.Up2Date
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\ArcaneEngine.dll
 C:\dev\ArcaneEngine\ArcaneEngine\obj\Release\net8.0\refint\ArcaneEngine.dll

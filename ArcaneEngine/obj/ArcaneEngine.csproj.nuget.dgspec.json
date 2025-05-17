@@ -49,9 +49,17 @@
         "net8.0": {
           "targetAlias": "net8.0",
           "dependencies": {
+            "CjClutter.ObjLoader": {
+              "target": "Package",
+              "version": "[1.0.0, )"
+            },
             "OpenTK": {
               "target": "Package",
               "version": "[4.9.4, )"
+            },
+            "StbImageSharp": {
+              "target": "Package",
+              "version": "[2.30.15, )"
             }
           },
           "imports": [

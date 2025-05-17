@@ -169,7 +169,7 @@ namespace Arcane.Components
         {
             // To match Unity's +Z forward: transform (0,0,1) by the world rotation.
             // OpenTK's default might be -Z for some camera setups, but for object forward, +Z is common.
-            get { return Vector3.Normalize(Vector3.Transform(Vector3.UnitZ, this.rotation)); }
+            get { return Vector3.Normalize(Vector3.Transform(-Vector3.UnitZ, this.rotation)); }
         }
         public Vector3 up
         {

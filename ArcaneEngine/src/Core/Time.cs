@@ -37,7 +37,7 @@ namespace Arcane.Core
             lastFrameTimestampTicks = currentFrameTimestampTicks;
 
             // Prevent negative or excessively large delta time on the first few frames or after a major stall
-            // A MAX_DELTA_TIME check for rawDeltaTimeSeconds might also be good here if not done elsewhere before use.
+            // A MAXDELTATIME check for rawDeltaTimeSeconds might also be good here if not done elsewhere before use.
             if (rawDeltaTimeSeconds < 0) rawDeltaTimeSeconds = 0;
 
             uptimeSeconds += rawDeltaTimeSeconds;
