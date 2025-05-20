@@ -3,6 +3,7 @@ using Arcane.Components;
 using System; // For Exception
 using System.Collections.Generic; // For List, HashSet
 using System.Linq; // For ToList
+using Arcane.Rendering; // Added for Skybox
 
 namespace Arcane.SceneSystem
 {
@@ -15,11 +16,14 @@ namespace Arcane.SceneSystem
         private readonly List<Component> pendingStartComponents = new List<Component>();
         private bool isInitialized = false;
 
+        public Skybox Skybox { get; set; } // Added Skybox property
+
         public IReadOnlyList<GameObject> RootGameObjects => rootGameObjects.AsReadOnly();
 
         public Scene(string name)
         {
             Name = string.IsNullOrEmpty(name) ? "Unnamed Scene" : name;
+            Skybox = null; // Initialize Skybox as null
         }
 
         public void AddGameObject(GameObject go)
@@ -35,35 +39,27 @@ namespace Arcane.SceneSystem
                 rootGameObjects.Add(go);
             }
 
-            if (isInitialized && go.activeInHierarchy) // Only initialize if GO is active
+            if (isInitialized && go.activeInHierarchy) 
             {
-                InitializeGameObjectRecursive(go); // Calls Awake
-                // StartAllPending will be called before the next Update pass
+                InitializeGameObjectRecursive(go); 
             }
         }
 
-        public void RemoveGameObject(GameObject go) // Renamed from DestroyGameObject for clarity
+        public void RemoveGameObject(GameObject go) 
         {
             if (go == null) return;
 
-            // Recursively remove children first by creating a copy for safe iteration
             List<Transform> childrenCopy = go.transform.Children.ToList();
             foreach (Transform childTransform in childrenCopy)
             {
                 RemoveGameObject(childTransform.gameObject);
             }
 
-            // Call OnDestroy for all components on this GameObject
             CallOnDestroyForGameObject(go);
-
-            // Remove from parent's children list
             go.transform.SetParent(null, false);
-
-            // Remove from root list
             rootGameObjects.Remove(go);
 
-            // Clean up component references from scene's tracking lists
-            foreach (var component in go.GetAllComponents()) // Iterate using the new method
+            foreach (var component in go.GetAllComponents()) 
             {
                 awokenComponents.Remove(component);
                 pendingStartComponents.Remove(component);
@@ -95,11 +91,10 @@ namespace Arcane.SceneSystem
         {
             if (isInitialized) return;
 
-            // Create a copy for safe iteration if GameObjects are added/removed during Awake
             List<GameObject> currentRoots = rootGameObjects.ToList();
             foreach (var rootGo in currentRoots)
             {
-                if (rootGo.activeInHierarchy) // Only Awake active GameObjects
+                if (rootGo.activeInHierarchy) 
                 {
                     InitializeGameObjectRecursive(rootGo);
                 }
@@ -109,17 +104,16 @@ namespace Arcane.SceneSystem
 
         private void InitializeGameObjectRecursive(GameObject go)
         {
-            if (go == null || !go.activeInHierarchy) return; // Process only active GameObjects
+            if (go == null || !go.activeInHierarchy) return; 
 
-            foreach (Component component in go.GetAllComponents()) // Use the new method
+            foreach (Component component in go.GetAllComponents()) 
             {
-                if (awokenComponents.Add(component)) // If successfully added (wasn't already awoken)
+                if (awokenComponents.Add(component)) 
                 {
                     try
                     {
                         component.OnAwake();
-                        // Add to pending start only if the component's GO is active and component is enabled (implicitly true for now)
-                        if (component.gameObject.activeInHierarchy) // Double check, though parent call implies it
+                        if (component.gameObject.activeInHierarchy) 
                         {
                             pendingStartComponents.Add(component);
                         }
@@ -130,8 +124,7 @@ namespace Arcane.SceneSystem
                     }
                 }
             }
-
-            // Recursively initialize children that are active
+            
             foreach (Transform childTransform in go.transform.Children)
             {
                 if (childTransform.gameObject.activeInHierarchy)
@@ -145,14 +138,11 @@ namespace Arcane.SceneSystem
         {
             if (pendingStartComponents.Count == 0) return;
 
-            // Iterate a copy in case components are added/removed during Start
-            // or if their active state changes.
             List<Component> currentPending = pendingStartComponents.ToList();
-            pendingStartComponents.Clear(); // Clear original list before processing
+            pendingStartComponents.Clear(); 
 
             foreach (var component in currentPending)
             {
-                // Ensure the component and its GameObject are still valid and active before calling Start
                 if (component != null && component.gameObject != null && component.gameObject.activeInHierarchy)
                 {
                     try
@@ -166,8 +156,6 @@ namespace Arcane.SceneSystem
                 }
                 else if (component != null && component.gameObject != null && !component.gameObject.activeInHierarchy)
                 {
-                    // If it became inactive before Start, put it back to be started later if it becomes active again.
-                    // This can happen if SetActive(false) was called after Awake but before Start.
                     pendingStartComponents.Add(component);
                 }
             }
@@ -177,7 +165,6 @@ namespace Arcane.SceneSystem
         {
             if (pendingStartComponents.Count > 0) StartAllPending();
 
-            // Iterate a copy for safety if GameObjects/components are modified during Update
             List<GameObject> currentRoots = rootGameObjects.ToList();
             foreach (var rootGo in currentRoots)
             {
@@ -189,9 +176,7 @@ namespace Arcane.SceneSystem
         {
             if (go == null || !go.activeInHierarchy) return;
 
-            // Iterate over a copy of components if components can be added/removed during Update
-            // For simplicity, direct iteration is used here. Consider implications.
-            foreach (Component component in go.GetAllComponents()) // Use the new method
+            foreach (Component component in go.GetAllComponents()) 
             {
                 try
                 {
@@ -203,7 +188,7 @@ namespace Arcane.SceneSystem
                 }
             }
 
-            List<Transform> childrenCopy = go.transform.Children.ToList(); // Iterate copy for safety
+            List<Transform> childrenCopy = go.transform.Children.ToList(); 
             foreach (Transform childTransform in childrenCopy)
             {
                 UpdateGameObjectRecursive(childTransform.gameObject);
@@ -212,7 +197,6 @@ namespace Arcane.SceneSystem
 
         public void FixedUpdateAll()
         {
-            // Iterate a copy for safety
             List<GameObject> currentRoots = rootGameObjects.ToList();
             foreach (var rootGo in currentRoots)
             {
@@ -224,7 +208,7 @@ namespace Arcane.SceneSystem
         {
             if (go == null || !go.activeInHierarchy) return;
 
-            foreach (Component component in go.GetAllComponents()) // Use the new method
+            foreach (Component component in go.GetAllComponents()) 
             {
                 try
                 {
@@ -236,7 +220,7 @@ namespace Arcane.SceneSystem
                 }
             }
 
-            List<Transform> childrenCopy = go.transform.Children.ToList(); // Iterate copy for safety
+            List<Transform> childrenCopy = go.transform.Children.ToList(); 
             foreach (Transform childTransform in childrenCopy)
             {
                 FixedUpdateGameObjectRecursive(childTransform.gameObject);
@@ -246,10 +230,16 @@ namespace Arcane.SceneSystem
         public void DestroyScene()
         {
             Arcane.Core.Debug.Log($"Scene '{Name}': Starting destruction...");
+            
+            // Dispose the scene's skybox if it exists
+            Skybox?.Dispose();
+            Skybox = null;
+            Arcane.Core.Debug.Log($"Scene '{Name}': Skybox disposed.");
+
             List<GameObject> rootsCopy = rootGameObjects.ToList();
             foreach (var rootGo in rootsCopy)
             {
-                RemoveGameObject(rootGo); // This will recursively call OnDestroy
+                RemoveGameObject(rootGo); 
             }
             rootGameObjects.Clear();
             awokenComponents.Clear();
@@ -261,11 +251,8 @@ namespace Arcane.SceneSystem
         private void CallOnDestroyForGameObject(GameObject go)
         {
             if (go == null) return;
-            Arcane.Core.Debug.Log($"Scene '{Name}': Calling OnDestroy for components of GameObject '{go.Name}'.");
+            // Arcane.Core.Debug.Log($"Scene '{Name}': Calling OnDestroy for components of GameObject '{go.Name}'."); // Can be too verbose
 
-            // Call OnDestroy in reverse order of addition might be safer for dependencies,
-            // but direct order is simpler for now. Transform is usually first.
-            // Create a copy for iteration as components might try to remove themselves or others.
             List<Component> componentsCopy = go.GetAllComponents().ToList();
             foreach (Component component in componentsCopy)
             {

@@ -16,9 +16,9 @@ namespace Arcane.Rendering
         private Shader _skyboxShader;
         private bool _isDisposed = false; // Added missing field
 
-        private const int IRRADIANCE_MAP_SIZE = 32;
-        private const int PREFILTERED_MAP_SIZE = 128;
-        private const int BRDF_LUT_SIZE = 512;
+        private const int IRRADIANCE_MAP_SIZE = 1024;
+        private const int PREFILTERED_MAP_SIZE = 2048;
+        private const int BRDF_LUT_SIZE = 2048;
 
 
         public Skybox(Cubemap environmentMap)
@@ -87,7 +87,9 @@ namespace Arcane.Rendering
                 return;
             }
             Debug.Log("Skybox: Generating Pre-filtered Specular Map...");
-            PrefilteredMap = new Cubemap(PREFILTERED_MAP_SIZE, PREFILTERED_MAP_SIZE, PixelInternalFormat.Rgb16f, true);
+
+            int PREFILTERED_MAP_MIP_LEVELS = 5;
+            PrefilteredMap = new Cubemap(PREFILTERED_MAP_SIZE, PREFILTERED_MAP_SIZE, PixelInternalFormat.Rgb16f, PREFILTERED_MAP_MIP_LEVELS);
             if (PrefilteredMap.Id == 0) { Debug.LogError("Failed to create PrefilteredMap cubemap."); return; }
 
             Shader prefilterShader = SkyboxUtils.GetShader(SkyboxShaderType.PrefilterEnvironmentMap);

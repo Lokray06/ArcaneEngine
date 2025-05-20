@@ -1,55 +1,84 @@
 #version 330 core
-// ArcaneEngine/res/shaders/skybox/irradiance_convolution.frag
-// Fragment shader to convolve an environment cubemap to generate an irradiance map.
-// This is used for the diffuse component of image-based lighting.
-// It samples the environment map multiple times around the normal direction (v_LocalPos)
-// and averages the results.
-
-// Input from vertex shader: local position of the vertex (normal direction for this fragment)
-in vec3 v_LocalPos;
-
-// Output color for the fragment (convolved irradiance)
+in vec3 v_LocalPos; // Normal direction for this fragment
 out vec4 FragColor;
 
-// Uniform for the environment cubemap sampler
 uniform samplerCube u_EnvironmentMap;
+
+// --- TUNABLES ---
+// You can expose these as uniforms to tweak from C# without recompiling shaders
+const uint NUM_IRRADIANCE_SAMPLES = 6000u; // Increase for better quality, decrease for speed
+const float INPUT_LOD_BIAS = 1.5;       // LOD bias for sampling u_EnvironmentMap. Higher = more blur on input.
+                                         // Try values from 0.0 (no bias) up to 2.0 or 3.0.
+const float MAX_SAMPLE_CLAMP_VALUE = 35.0; // Clamp value for individual samples from u_EnvironmentMap.
+                                         // Adjust based on your HDRI's intensity.
 
 const float PI = 3.14159265359;
 
-void main()
-{
-    // Normalize the incoming local position, which represents the normal (N) for this fragment
-    vec3 N = normalize(v_LocalPos);
+// Hammersley sequence for QMC (seems correct)
+vec2 Hammersley(uint i, uint N) {
+    float radicalInverseVDC = 0.0;
+    float invN = 1.0 / float(N);
+    float base = 0.5;
+    uint temp_i = i;
+    while(temp_i > 0u) {
+        radicalInverseVDC += float(temp_i % 2u) * base;
+        temp_i /= 2u;
+        base *= 0.5;
+    }
+    return vec2(float(i) * invN, radicalInverseVDC);
+}
 
-    // The irradiance calculation involves integrating incoming radiance over the hemisphere.
-    // This is approximated by Monte Carlo sampling.
+// Generates a cosine-weighted sample direction on the hemisphere around Z-axis (0,0,1)
+// Xi.x for phi, Xi.y for theta distribution
+vec3 CosineSampleHemisphere(vec2 Xi) {
+    float phi = 2.0 * PI * Xi.x;
+    // sin^2(theta) = Xi.y -> sin(theta) = sqrt(Xi.y)
+    // This distributes samples more towards the horizon of the hemisphere,
+    // which is correct for cosine-weighted importance sampling (P(theta, phi) ~ cos(theta)sin(theta)).
+    float sinTheta = sqrt(Xi.y);
+    float cosTheta = sqrt(1.0 - Xi.y); // This implies sinTheta^2 = Xi.y
 
+    vec3 H; // Sample vector in tangent space
+    H.x = cos(phi) * sinTheta;
+    H.y = sin(phi) * sinTheta;
+    H.z = cosTheta; // Aligned with the Z-axis (normal) in tangent space
+    return H; // Already normalized if math is correct
+}
+
+void main() {
+    vec3 N = normalize(v_LocalPos); // The normal for this point on the cubemap face
     vec3 irradiance = vec3(0.0);
 
-    // Tangent space basis vectors
-    vec3 up    = vec3(0.0, 1.0, 0.0);
-    vec3 right = normalize(cross(up, N)); // Calculate right vector based on N and world up
-    up       = normalize(cross(N, right));    // Recalculate up vector to be orthogonal to N and right
+    // Create tangent-space basis robustly (seems correct)
+    vec3 world_up_reference = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent = normalize(cross(world_up_reference, N));
+    vec3 bitangent = normalize(cross(N, tangent)); // Ensure consistent winding
+    mat3 TBN = mat3(tangent, bitangent, N); // Transforms from tangent space to world space
 
-    float sampleDelta = 0.025; // Controls the density of samples
-    float nrSamples = 0.0;
-    for(float phi = 0.0; phi < 2.0 * PI; phi += sampleDelta)
-    {
-        for(float theta = 0.0; theta < 0.5 * PI; theta += sampleDelta)
-        {
-            // Spherical to Cartesian conversion for tangent space sample vector
-            vec3 tangentSample = vec3(sin(theta) * cos(phi),  sin(theta) * sin(phi), cos(theta));
-            // Transform sample from tangent to world space
-            vec3 sampleVec = tangentSample.x * right + tangentSample.y * up + tangentSample.z * N;
+    for(uint i = 0u; i < NUM_IRRADIANCE_SAMPLES; ++i) {
+        vec2 Xi = Hammersley(i, NUM_IRRADIANCE_SAMPLES);
+        vec3 tangentSample = CosineSampleHemisphere(Xi);
+        vec3 worldSampleVec = TBN * tangentSample; // Already normalized if TBN and tangentSample are
 
-            // Sample the environment map and accumulate, weighting by cos(theta) for Lambertian diffuse
-            irradiance += texture(u_EnvironmentMap, sampleVec).rgb * cos(theta) * sin(theta);
-            nrSamples++;
-        }
+        // Sample from the environment map with an LOD bias
+        vec3 rawSampleColor = textureLod(u_EnvironmentMap, worldSampleVec, INPUT_LOD_BIAS).rgb;
+
+        // Clamp the sampled color to reduce impact of extreme fireflies
+        vec3 clampedSampleColor = clamp(rawSampleColor, vec3(0.0), vec3(MAX_SAMPLE_CLAMP_VALUE));
+
+        // For cosine importance sampling, the PDF includes cos(theta)/PI.
+        // The integral is integral(L(w) * cos(theta) * dw).
+        // The Monte Carlo estimator: (1/N) * Sum_i ( L(wi) * cos(theta_i) / PDF(wi) )
+        // If PDF(wi) = cos(theta_i) / PI, then estimator = (1/N) * Sum_i ( L(wi) * PI ).
+        // So, we sum L(wi) (which is 'clampedSampleColor') and then multiply by PI/N later.
+        irradiance += clampedSampleColor;
     }
-    // Average the samples and scale by PI (part of the irradiance integral)
-    irradiance = PI * irradiance * (1.0 / nrSamples);
+
+    if(NUM_IRRADIANCE_SAMPLES > 0u) {
+        irradiance = irradiance * PI * (1.0 / float(NUM_IRRADIANCE_SAMPLES));
+    } else {
+        irradiance = vec3(0.0);
+    }
 
     FragColor = vec4(irradiance, 1.0);
 }
-

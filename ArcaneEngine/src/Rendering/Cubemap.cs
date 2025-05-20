@@ -15,32 +15,36 @@ namespace Arcane.Rendering
         private const int CUBEMAP_FACE_COUNT = 6;
 
         // For internal use (e.g. framebuffer attachments)
-        internal Cubemap(int width, int height, PixelInternalFormat internalFormat, bool generateMipmaps = false)
+        public Cubemap(int width, int height, PixelInternalFormat internalFormat, int mipLevels = 1)
         {
             Id = GL.GenTexture();
             GL.BindTexture(TextureTarget.TextureCubeMap, Id);
 
-            for (int i = 0; i < CUBEMAP_FACE_COUNT; i++)
-            {
-                // Initialize with null data, actual data will be rendered to it or uploaded later
-                GL.TexImage2D(TextureTarget.TextureCubeMapPositiveX + i, 0, internalFormat,
-                              width, height, 0, PixelFormat.Rgb, PixelType.Float, IntPtr.Zero);
-            }
+            // Use TexStorage2D for immutable storage for all mip levels and faces
+            // Note: PixelInternalFormat maps to SizedInternalFormat for TexStorage.
+            // Rgb16f is already a SizedInternalFormat.
+            GL.TexStorage2D(TextureTarget2d.TextureCubeMap, mipLevels, (SizedInternalFormat)internalFormat, width, height);
+            GLDebug.CheckError($"TexStorage2D texID {Id}, mips {mipLevels}, format {internalFormat}");
+
+            // With TexStorage2D, you DO NOT call TexImage2D to allocate.
+            // You would only call TexSubImage2D if you wanted to upload initial data (which you don't here, as it's for FBOs).
 
             GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
             GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
             GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapR, (int)TextureWrapMode.ClampToEdge);
-            GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter,
-                generateMipmaps ? (int)TextureMinFilter.LinearMipmapLinear : (int)TextureMinFilter.Linear);
             GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
 
-            if (generateMipmaps)
+            if (mipLevels > 1)
             {
-                GL.GenerateMipmap(GenerateMipmapTarget.TextureCubeMap);
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+            }
+            else
+            {
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.Linear);
             }
 
             GL.BindTexture(TextureTarget.TextureCubeMap, 0);
-            GLDebug.CheckError($"Cubemap internal constructor (ID: {Id})");
+            GLDebug.CheckError($"Cubemap constructor (ID: {Id}, Mips: {mipLevels}) - After TexStorage2D");
             _isDisposed = (Id == 0);
         }
 
@@ -134,78 +138,126 @@ namespace Arcane.Rendering
             else Debug.LogError($"Cubemap(HDRI): Failed to convert HDRI '{hdriAsset.Name}' to cubemap.");
         }
 
-        private int ConvertEquirectangularToCubemapGPU(HdrTextureData hdrData, int size) // Accessing public Importer.HdrTextureData
+        // In ArcaneEngine/src/Rendering/Cubemap.cs
+
+        private int ConvertEquirectangularToCubemapGPU(HdrTextureData hdrData, int size)
         {
-            Texture equirectangularMap = new Texture(hdrData);
+            Texture equirectangularMap = new Texture(hdrData); // Assuming HdrTextureData is from your Importer
             if (equirectangularMap.Id == 0)
             {
-                Debug.LogError("Failed to create 2D HDR texture from HdrTextureData.");
+                Debug.LogError("ConvertEquirectangularToCubemapGPU: Failed to create 2D HDR texture from HdrTextureData.");
                 return 0;
             }
 
-            int cubemapId = GL.GenTexture();
-            GL.BindTexture(TextureTarget.TextureCubeMap, cubemapId);
-            for (int i = 0; i < 6; ++i)
+            int cubemapId = 0;
+            int captureFBO = 0;
+            int captureRBO = 0;
+
+            try
             {
-                GL.TexImage2D(TextureTarget.TextureCubeMapPositiveX + i, 0, PixelInternalFormat.Rgb16f,
-                              size, size, 0, PixelFormat.Rgb, PixelType.Float, IntPtr.Zero);
-            }
-            GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
-            GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
-            GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapR, (int)TextureWrapMode.ClampToEdge);
-            GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
-            GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+                cubemapId = GL.GenTexture();
+                GL.BindTexture(TextureTarget.TextureCubeMap, cubemapId);
+                GLDebug.CheckError("ConvertEquirectangularToCubemapGPU - GenTexture/BindTexture");
 
-            int captureFBO = GL.GenFramebuffer();
-            int captureRBO = GL.GenRenderbuffer();
+                // Calculate the number of mip levels needed for a cubemap of 'size'
+                // Example: size 512 -> log2(512) = 9. Mip levels 0 through 8, so 9 levels if 0-indexed.
+                // Or, if 1-indexed for count: floor(log2(size)) + 1
+                int numMipLevelsForEnvMap = (int)Math.Floor(Math.Log(size, 2)) + 1;
 
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, captureFBO);
-            GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, captureRBO);
-            GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.DepthComponent24, size, size);
-            GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, RenderbufferTarget.Renderbuffer, captureRBO);
+                // Use TexStorage2D to define immutable storage for ALL mip levels with the correct format
+                GL.TexStorage2D(TextureTarget2d.TextureCubeMap,
+                                numMipLevelsForEnvMap,
+                                SizedInternalFormat.Rgb16f, // Ensure this is the correct SizedInternalFormat for your HDR data
+                                size, size);
+                GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - TexStorage2D (ID: {cubemapId}, Mips: {numMipLevelsForEnvMap}, Size: {size})");
 
-            Shader equirectToCubemapShader = SkyboxUtils.GetShader(SkyboxShaderType.EquirectangularToCubemap);
-            if (equirectToCubemapShader == null || equirectToCubemapShader.ProgramId == 0)
-            {
-                Debug.LogError("ConvertEquirectangularToCubemapGPU: Failed to get equirectangularToCubemapShader.");
-                GL.DeleteFramebuffer(captureFBO); GL.DeleteRenderbuffer(captureRBO); GL.DeleteTexture(cubemapId);
-                equirectangularMap.Dispose(); return 0;
-            }
+                // Texture parameters
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapS, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapT, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureWrapR, (int)TextureWrapMode.ClampToEdge);
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear); // Mipmapping is intended
+                GL.TexParameter(TextureTarget.TextureCubeMap, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+                GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - TexParameters (ID: {cubemapId})");
 
-            equirectToCubemapShader.Use();
-            equirectToCubemapShader.SetMatrix4("u_ProjectionMatrix", SkyboxUtils.CaptureProjection);
-            equirectangularMap.Bind(TextureUnit.Texture0);
-            equirectToCubemapShader.SetInt("u_EquirectangularMap", 0);
+                captureFBO = GL.GenFramebuffer();
+                GL.BindFramebuffer(FramebufferTarget.Framebuffer, captureFBO);
+                GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - GenFramebuffer/BindFramebuffer (FBO: {captureFBO})");
 
-            GL.Viewport(0, 0, size, size);
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, captureFBO);
-            Mesh skyboxCube = SkyboxUtils.GetSkyboxCube();
-            if (skyboxCube == null || skyboxCube.VaoId == 0)
-            {
-                Debug.LogError("ConvertEquirectangularToCubemapGPU: Failed to get skyboxCube mesh.");
-                GL.DeleteFramebuffer(captureFBO); GL.DeleteRenderbuffer(captureRBO); GL.DeleteTexture(cubemapId);
-                equirectangularMap.Dispose(); return 0;
-            }
+                // Optional: Depth buffer for completeness, though not strictly needed if only rendering a skybox cube
+                captureRBO = GL.GenRenderbuffer();
+                GL.BindRenderbuffer(RenderbufferTarget.Renderbuffer, captureRBO);
+                GL.RenderbufferStorage(RenderbufferTarget.Renderbuffer, RenderbufferStorage.DepthComponent24, size, size);
+                GL.FramebufferRenderbuffer(FramebufferTarget.Framebuffer, FramebufferAttachment.DepthAttachment, RenderbufferTarget.Renderbuffer, captureRBO);
+                GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - Renderbuffer setup (RBO: {captureRBO})");
 
-            for (int i = 0; i < 6; ++i)
-            {
-                equirectToCubemapShader.SetMatrix4("u_ViewMatrix", SkyboxUtils.CaptureViews[i]);
-                GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0,
-                                        TextureTarget.TextureCubeMapPositiveX + i, cubemapId, 0);
-                GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+                Shader equirectToCubemapShader = SkyboxUtils.GetShader(SkyboxShaderType.EquirectangularToCubemap);
+                if (equirectToCubemapShader == null || equirectToCubemapShader.ProgramId == 0)
+                {
+                    Debug.LogError("ConvertEquirectangularToCubemapGPU: Failed to get equirectangularToCubemapShader.");
+                    throw new InvalidOperationException("Failed to get equirectangularToCubemapShader."); // Or handle more gracefully
+                }
+
+                equirectToCubemapShader.Use();
+                equirectToCubemapShader.SetMatrix4("u_ProjectionMatrix", SkyboxUtils.CaptureProjection);
+                equirectangularMap.Bind(TextureUnit.Texture0);
+                equirectToCubemapShader.SetInt("u_EquirectangularMap", 0);
+
+                GL.Viewport(0, 0, size, size); // Set viewport for rendering to the cubemap faces
+                Mesh skyboxCube = SkyboxUtils.GetSkyboxCube();
+                if (skyboxCube == null || skyboxCube.VaoId == 0)
+                {
+                    Debug.LogError("ConvertEquirectangularToCubemapGPU: Failed to get skyboxCube mesh.");
+                    throw new InvalidOperationException("Failed to get skyboxCube mesh.");
+                }
                 skyboxCube.Bind();
-                GL.DrawElements(PrimitiveType.Triangles, skyboxCube.IndexCount, DrawElementsType.UnsignedInt, 0);
+
+                for (int i = 0; i < 6; ++i)
+                {
+                    equirectToCubemapShader.SetMatrix4("u_ViewMatrix", SkyboxUtils.CaptureViews[i]);
+                    // Attach MIP LEVEL 0 of the cubemap face to the FBO for rendering
+                    GL.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0,
+                                            TextureTarget.TextureCubeMapPositiveX + i, cubemapId, 0); // Target mip level 0
+                    GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - FramebufferTexture2D face {i} (ID: {cubemapId})");
+
+                    // Check Framebuffer completeness for each face, this is good for debugging
+                    FramebufferErrorCode fboStatus = GL.CheckFramebufferStatus(FramebufferTarget.Framebuffer);
+                    if (fboStatus != FramebufferErrorCode.FramebufferComplete)
+                    {
+                        Debug.LogError($"ConvertEquirectangularToCubemapGPU: Framebuffer not complete for face {i}! Status: {fboStatus}");
+                        throw new Exception($"Framebuffer not complete for face {i}! Status: {fboStatus}");
+                    }
+
+                    GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit); // Clear depth too if depth buffer is attached
+                    GL.DrawElements(PrimitiveType.Triangles, skyboxCube.IndexCount, DrawElementsType.UnsignedInt, 0);
+                    GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - DrawElements face {i} (ID: {cubemapId})");
+                }
+
+                // After rendering to mip level 0 of all faces, generate the rest of the mipmap chain
+                GL.BindTexture(TextureTarget.TextureCubeMap, cubemapId); // Ensure the cubemap is bound for GenerateMipmap
+                GL.GenerateMipmap(GenerateMipmapTarget.TextureCubeMap);
+                GLDebug.CheckError($"ConvertEquirectangularToCubemapGPU - GenerateMipmap (ID: {cubemapId})");
+
+                return cubemapId; // Success
             }
+            catch (Exception ex)
+            {
+                Debug.LogError($"ConvertEquirectangularToCubemapGPU - EXCEPTION: {ex.Message}\nStackTrace: {ex.StackTrace}");
+                if (cubemapId != 0) GL.DeleteTexture(cubemapId);
+                return 0; // Indicate failure
+            }
+            finally
+            {
+                // Cleanup Framebuffer and Renderbuffer
+                if (captureFBO != 0)
+                {
+                    GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+                    GL.DeleteFramebuffer(captureFBO);
+                }
+                if (captureRBO != 0) GL.DeleteRenderbuffer(captureRBO);
 
-            GL.BindTexture(TextureTarget.TextureCubeMap, cubemapId);
-            GL.GenerateMipmap(GenerateMipmapTarget.TextureCubeMap);
-
-            GL.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-            GL.DeleteFramebuffer(captureFBO); GL.DeleteRenderbuffer(captureRBO);
-            equirectangularMap.Dispose();
-
-            GLDebug.CheckError("ConvertEquirectangularToCubemapGPU");
-            return cubemapId;
+                equirectangularMap?.Dispose(); // Dispose the temporary 2D HDR texture
+                GLDebug.CheckError("ConvertEquirectangularToCubemapGPU - Finally block cleanup");
+            }
         }
 
         public void Bind(TextureUnit unit = TextureUnit.Texture0)

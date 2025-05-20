@@ -73,13 +73,11 @@ struct PointLight {
 uniform PointLight u_PointLights[MAX_POINT_LIGHTS];
 uniform int u_NumPointLights;
 
-
 // --- IBL Uniforms ---
 uniform samplerCube u_IrradianceMap;    // For diffuse IBL
 uniform samplerCube u_PrefilteredMap;   // For specular IBL (pre-filtered mipmapped cubemap)
 uniform sampler2D u_BrdfLut;            // 2D BRDF lookup texture
 uniform float u_MaxReflectionLod;       // Max LOD for prefiltered map sampling
-
 
 // --- Constants ---
 const float PI = 3.14159265359;
@@ -128,11 +126,9 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0) {
 }
 
 // Fresnel Schlick with roughness term for IBL
-vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
-{
+vec3 FresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
-
 
 // --- Main Shading Logic ---
 void main() {
@@ -141,7 +137,7 @@ void main() {
 
     // --- Sample Material Properties ---
     vec3 albedo = u_PBRFactors.AlbedoColor;
-    if (u_PBRMaps.UseAlbedoMap == 1) {
+    if(u_PBRMaps.UseAlbedoMap == 1) {
         albedo *= texture(u_PBRMaps.AlbedoMap, texCoords).rgb;
     }
     // If rendering to sRGB framebuffer, albedo map might need sRGB to Linear conversion.
@@ -149,30 +145,30 @@ void main() {
     // albedo = pow(albedo, vec3(2.2)); // If albedo map is sRGB
 
     float metallic = u_PBRFactors.MetallicFactor;
-    if (u_PBRMaps.UseMetallicMap == 1) {
+    if(u_PBRMaps.UseMetallicMap == 1) {
         metallic *= texture(u_PBRMaps.MetallicMap, texCoords).r; // Assuming metallic is in R channel
     }
     metallic = clamp(metallic, 0.0, 1.0);
 
     float roughness = u_PBRFactors.RoughnessFactor;
-    if (u_PBRMaps.UseRoughnessMap == 1) {
+    if(u_PBRMaps.UseRoughnessMap == 1) {
         roughness *= texture(u_PBRMaps.RoughnessMap, texCoords).g; // Assuming roughness is in G channel
     }
-    roughness = clamp(roughness, 0.045, 1.0); // Clamp min roughness to avoid artifacts
+    roughness = clamp(roughness, 0.005, 1.0); // Clamp min roughness to avoid artifacts
 
     float ao = u_PBRFactors.AoFactor;
-    if (u_PBRMaps.UseAoMap == 1) {
+    if(u_PBRMaps.UseAoMap == 1) {
         ao *= texture(u_PBRMaps.AoMap, texCoords).r; // Assuming AO is in R channel
     }
 
     vec3 emission = u_PBRFactors.EmissionColor * u_PBRFactors.EmissionStrength;
-    if (u_PBRMaps.UseEmissionMap == 1) {
+    if(u_PBRMaps.UseEmissionMap == 1) {
         emission *= texture(u_PBRMaps.EmissionMap, texCoords).rgb;
     }
 
     // --- Normal Mapping ---
     vec3 N = normalize(fs_in.Normal_World); // Default to interpolated vertex normal
-    if (u_PBRMaps.UseNormalMap == 1) {
+    if(u_PBRMaps.UseNormalMap == 1) {
         vec3 tangentNormal = texture(u_PBRMaps.NormalMap, texCoords).rgb * 2.0 - 1.0;
         N = normalize(fs_in.TBN * tangentNormal);
     }
@@ -190,13 +186,13 @@ void main() {
     vec3 Lo = vec3(0.0); // Sum of outgoing radiance from direct lights
 
     // --- Directional Light ---
-    if (u_UseDirLight == 1) {
+    if(u_UseDirLight == 1) {
         vec3 L = normalize(-u_DirLight.Direction_World); // Direction TO light source
         vec3 H = normalize(V + L);                       // Halfway vector
         float NdotL = max(dot(N, L), 0.0);
         float radiance = u_DirLight.Intensity * NdotL;   // Simplified radiance, no distance attenuation
 
-        if (radiance > 0.0) {
+        if(radiance > 0.0) {
             // Cook-Torrance BRDF
             float NDF = DistributionGGX(N, H, roughness);
             float G = GeometrySmith(N, V, L, roughness);
@@ -207,7 +203,7 @@ void main() {
             kD *= (1.0 - metallic);   // Metals have no diffuse reflection
 
             vec3 numerator = NDF * G * F;
-            float denominator = 4.0 * max(dot(N, V), 0.0) * NdotL + EPSILON; // Add epsilon to avoid div by zero
+            float denominator = 4.0 * max(dot(N, V), EPSILON) * max(NdotL, EPSILON) + EPSILON; // Use EPSILON consistently
             vec3 specular = numerator / denominator;
 
             // Add to outgoing radiance
@@ -216,7 +212,7 @@ void main() {
     }
 
     // --- Point Lights ---
-    for (int i = 0; i < u_NumPointLights; ++i) {
+    for(int i = 0; i < u_NumPointLights; ++i) {
         vec3 L_fragToLight = u_PointLights[i].Position_World - fs_in.FragPos_World;
         float distance = length(L_fragToLight);
         vec3 L = normalize(L_fragToLight); // Direction TO light source
@@ -224,9 +220,9 @@ void main() {
 
         // Attenuation
         float attenuation = 1.0 / (u_PointLights[i].Constant + u_PointLights[i].Linear * distance + u_PointLights[i].Quadratic * (distance * distance));
-        float radiance = u_PointLights[i].Intensity * attenuation * max(dot(N,L), 0.0);
+        float radiance = u_PointLights[i].Intensity * attenuation * max(dot(N, L), 0.0);
 
-        if (radiance > 0.0) {
+        if(radiance > 0.0) {
             // Cook-Torrance BRDF (same as directional light)
             float NDF = DistributionGGX(N, H, roughness);
             float G = GeometrySmith(N, V, L, roughness);
@@ -245,28 +241,26 @@ void main() {
     }
 
     // --- Image-Based Lighting (IBL) ---
-    // Diffuse IBL
-    vec3 F_ibl = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness); // Fresnel for IBL (uses roughness)
-    vec3 kS_ibl = F_ibl;
-    vec3 kD_ibl = vec3(1.0) - kS_ibl;
-    kD_ibl *= (1.0 - metallic); // Metals absorb diffuse light
+// Diffuse IBL (partitioning energy with angle-dependent F_ibl)
+    vec3 F_ibl_energy_partition = FresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
+    vec3 kS_ibl_energy_partition = F_ibl_energy_partition;
+    vec3 kD_ibl_energy_partition = vec3(1.0) - kS_ibl_energy_partition;
+    kD_ibl_energy_partition *= (1.0 - metallic);
 
     vec3 irradiance = texture(u_IrradianceMap, N).rgb;
-    vec3 diffuse_ibl = irradiance * albedo;
+    vec3 diffuse_ibl = irradiance * albedo; // albedo is pre-multiplied by kD_ibl_energy_partition later
 
-    // Specular IBL
-    vec3 R = reflect(-V, N); // Reflection vector
-    // Sample pre-filtered environment map based on roughness
-    // Roughness maps to mip level: 0.0 = mip 0 (sharp), 1.0 = max mip (blurry)
+// Specular IBL
+    vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(u_PrefilteredMap, R, roughness * u_MaxReflectionLod).rgb;
+    vec2 brdf_lut_sample = texture(u_BrdfLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
 
-    // Sample BRDF LUT
-    vec2 brdf  = texture(u_BrdfLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
-    vec3 specular_ibl = prefilteredColor * (F_ibl * brdf.x + brdf.y); // F0 * scale + bias
+// CORRECTED SPECULAR IBL: Use F0 with the BRDF LUT
+    vec3 specular_ibl = prefilteredColor * (F0 * brdf_lut_sample.x + brdf_lut_sample.y);
 
-    // Combine IBL contributions (modulated by kD_ibl and kS_ibl respectively)
-    vec3 ambient_ibl = (kD_ibl * diffuse_ibl + specular_ibl) * ao;
-
+// Combine IBL contributions
+// Modulate diffuse_ibl by kD_ibl_energy_partition. Specular_ibl already incorporates the necessary F0 via the LUT.
+    vec3 ambient_ibl = (kD_ibl_energy_partition * diffuse_ibl + specular_ibl) * ao;
 
     // --- Final Color ---
     // Combine direct lighting and IBL, then add emission
@@ -279,7 +273,5 @@ void main() {
     // If GL_FRAMEBUFFER_SRGB is enabled, this is often done automatically.
     // color = pow(color, vec3(1.0/2.2));
 
-
     FragColor = vec4(color, 1.0);
 }
-

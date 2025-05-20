@@ -1,135 +1,103 @@
 #version 330 core
-// ArcaneEngine/res/shaders/skybox/prefilter_envmap.frag
-// Fragment shader for pre-filtering an environment cubemap for specular IBL.
-// It uses Monte Carlo integration with importance sampling (Hammersley sequence)
-// based on the GGX distribution to simulate reflections for varying roughness levels.
-
-// Input from vertex shader: local position of the vertex (direction vector for sampling)
 in vec3 v_LocalPos;
-
-// Output color for the fragment (pre-filtered environment color)
 out vec4 FragColor;
 
-// Uniforms
-uniform samplerCube u_EnvironmentMap; // The source environment cubemap
-uniform float u_Roughness;            // Current roughness level for pre-filtering (mip level)
-uniform float u_SourceCubemapResolution; // Resolution of the source cubemap (e.g., 512 for a 512x512 cubemap)
+uniform samplerCube u_EnvironmentMap; // Your HDR environment cubemap (mipmapped)
+uniform float u_Roughness;            // Current roughness for this prefilter mip level (0.0 to 1.0)
+// uniform float u_SourceCubemapResolution; // Passed from C#, e.g., 512.0
 
 const float PI = 3.14159265359;
-const uint NUM_SAMPLES = 1024u; // Number of samples for Monte Carlo integration
+// Consider making NUM_SAMPLES a uniform if you want to experiment easily from C#
+const uint NUM_SAMPLES = 6000u;
+const float MAX_CLAMP_VALUE = 35.0; // Clamping for individual samples
 
-// Generates a low-discrepancy Hammersley sequence point for importance sampling.
-vec2 Hammersley(uint i, uint N)
-{
-    // Van der Corput sequence for the first dimension
+// Hammersley sequence (seems correct)
+vec2 Hammersley(uint i, uint N) {
     float radicalInverseVDC = 0.0;
     float invN = 1.0 / float(N);
-    float base = 0.5; // For base 2
+    float base = 0.5;
     uint temp_i = i;
-    while(temp_i > 0u)
-    {
-        radicalInverseVDC += float(temp_i % 2u) * base; // Use modulo for base
+    while(temp_i > 0u) {
+        radicalInverseVDC += float(temp_i % 2u) * base;
         temp_i /= 2u;
         base *= 0.5;
     }
     return vec2(float(i) * invN, radicalInverseVDC);
 }
 
+// Importance Sample GGX (using the common formula, ensure alpha_sq is not zero)
+vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness) {
+    float alpha = roughness * roughness; // Standard mapping for GGX alpha
+    // float alpha = roughness; // If your previous version used 'alpha = roughness', be consistent.
+                               // Common practice is (roughness*roughness) for alpha.
+                               // Let's assume your u_Roughness from C# is perceptual roughness [0,1]
+                               // and alpha for GGX is (perceptualRoughness)^2.
 
-// Importance samples the GGX distribution for a given roughness.
-// Returns a sample direction in tangent space.
-vec3 ImportanceSampleGGX(vec2 Xi, vec3 N, float roughness)
-{
-    float a = roughness * roughness; // Square roughness for GGX alpha
+    float alpha_sq = alpha * alpha;
+    alpha_sq = max(alpha_sq, 0.0001); // Prevent division by zero or issues with alpha_sq = 0
 
-    // Calculate spherical coordinates for the microfacet normal (H)
     float phi = 2.0 * PI * Xi.x;
-    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (a*a - 1.0) * Xi.y));
-    float sinTheta = sqrt(1.0 - cosTheta*cosTheta);
+    // Formula for cos(theta_h) for GGX NDF importance sampling
+    float cosTheta = sqrt((1.0 - Xi.y) / (1.0 + (alpha_sq - 1.0) * Xi.y));
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta)); // max to ensure non-negative
 
-    // Convert H from spherical to Cartesian coordinates in tangent space
-    vec3 H;
-    H.x = cos(phi) * sinTheta;
-    H.y = sin(phi) * sinTheta;
-    H.z = cosTheta;
+    vec3 H_tangent;
+    H_tangent.x = cos(phi) * sinTheta;
+    H_tangent.y = sin(phi) * sinTheta;
+    H_tangent.z = cosTheta;
 
-    // Transform H from tangent space to world space
-    // Create an orthonormal basis around N
-    vec3 up        = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
-    vec3 tangent   = normalize(cross(up, N));
-    vec3 bitangent = cross(N, tangent);
+    // Create orthonormal basis (TBN) around N
+    vec3 up_vec = abs(N.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 tangent_x = normalize(cross(up_vec, N));
+    vec3 bitangent_y = normalize(cross(N, tangent_x)); // Ensure normalized
+    // vec3 H_world = tangent_x * H_tangent.x + bitangent_y * H_tangent.y + N * H_tangent.z;
+    mat3 TBN = mat3(tangent_x, bitangent_y, N);
+    vec3 H_world = TBN * H_tangent;
 
-    vec3 sampleVec = tangent * H.x + bitangent * H.y + N * H.z;
-    return normalize(sampleVec);
+    return normalize(H_world); // Ensure H is normalized
 }
 
+void main() {
+    vec3 N = normalize(v_LocalPos); // Normal of the cubemap face pixel
+    vec3 V = N; // When pre-filtering cubemap, view vector is same as normal
 
-void main()
-{
-    // The incoming v_LocalPos is the normal direction (N) for this fragment.
-    vec3 N = normalize(v_LocalPos);
-    // The view direction (V) is assumed to be the same as the normal for pre-filtering,
-    // as we are integrating incoming light around the reflection of V about N.
-    // For cubemap pre-filtering, V is effectively N.
-    vec3 V = N;
-
+    vec3 prefilteredColorSum = vec3(0.0);
     float totalWeight = 0.0;
-    vec3 prefilteredColor = vec3(0.0);
 
-    for(uint i = 0u; i < NUM_SAMPLES; ++i)
-    {
-        // Generate a sample point using Hammersley sequence
+    for(uint i = 0u; i < NUM_SAMPLES; ++i) {
         vec2 Xi = Hammersley(i, NUM_SAMPLES);
-        // Generate a sample direction (L) based on GGX importance sampling
-        vec3 H = ImportanceSampleGGX(Xi, N, u_Roughness); // Microfacet normal
-        vec3 L = normalize(2.0 * dot(V, H) * H - V);      // Reflection vector (incident light direction)
+        // Use u_Roughness directly for sampling distribution
+        vec3 H = ImportanceSampleGGX(Xi, N, u_Roughness);
+        vec3 L = normalize(2.0 * dot(V, H) * H - V); // Reflection vector
 
         float NdotL = max(dot(N, L), 0.0);
-        if(NdotL > 0.0)
-        {
-            // Sample the environment map.
-            // The mip level is determined by the roughness and the PDF of the GGX distribution.
-            // A common approximation for LOD selection:
-            // float D   = DistributionGGX(N, H, u_Roughness); // Not directly used for LOD here
-            // float pdf = (D * NdotH) / (4.0 * VdotH); // NdotH and VdotH are dot(N,H) and dot(V,H)
-            // float resolution = 512.0; // Source cubemap resolution
-            // float saTexel  = 4.0 * PI / (6.0 * resolution * resolution);
-            // float saSample = 1.0 / (float(NUM_SAMPLES) * pdf + 0.0001);
-            // float mipLevel = u_Roughness == 0.0 ? 0.0 : 0.5 * log2(saSample / saTexel);
+        if(NdotL > 0.0) {
+            // --- Corrected LOD Calculation ---
+            // u_SourceCubemapResolution is passed from C# (e.g., 512.0 for a 512x512 cubemap)
+            // float sourceResolution = 512.0; // Or use a uniform: uniform float u_SourceCubemapResolution;
 
-            // Simpler LOD calculation from LearnOpenGL:
-            // Max mip level for prefiltered map is usually around 4-5.
-            // The source cubemap resolution is u_SourceCubemapResolution.
-            // The prefiltered map has its own mip levels generated by GL.GenerateMipmap in Cubemap.cs
-            // or manually attached if this shader is rendering to different mips.
-            // When sampling the *source* u_EnvironmentMap, we can use textureQueryLod or textureGrad
-            // if we want fine-grained control, or simply rely on textureLod.
-            // For this prefiltering step, we are generating the mips of the *prefiltered map*.
-            // The u_Roughness itself maps to the mip level we are currently rendering *to*.
-            // When sampling the source u_EnvironmentMap, we want to sample from a mip level
-            // that corresponds to the solid angle covered by the GGX lobe.
-            // A common heuristic is to relate roughness to mip level.
-            // The actual mip level for `texture` on `u_EnvironmentMap` can be implicitly determined
-            // by the hardware based on the texel footprint, or explicitly using `textureLod`.
-            // For simplicity and common practice in prefiltering shaders, `texture` without explicit LOD
-            // on the source cubemap is often sufficient if the source has mips.
-            // If the source `u_EnvironmentMap` does not have mips, this will sample LOD 0.
-            // To simulate wider GGX lobes sampling from a higher mip level of the source:
-            float lod = 0.0;
-            if (u_Roughness > 0.0) {
-                 // This is a heuristic. A more accurate way involves PDF and solid angles.
-                 // Max LOD for a 512x512 cubemap is log2(512) = 9.
-                 // We want to map roughness [0,1] to some LOD range [0, maxSourceLOD].
-                 // Example: lod = u_Roughness * (log2(u_SourceCubemapResolution) - 2.0); // -2 to avoid overly blurred high roughness
-                 lod = u_Roughness * 4.0; // Simpler mapping, assuming max useful LOD for reflection is around 4-5
-            }
+            // Max mip level index is log2(size). For a 512x512 (levels 0-9), textureQueryLevels is 10.
+            // So, max index = textureQueryLevels(u_EnvironmentMap) - 1.
+            float maxMipLevel = float(textureQueryLevels(u_EnvironmentMap) - 1);
 
-            prefilteredColor += textureLod(u_EnvironmentMap, L, lod).rgb * NdotL;
-            totalWeight      += NdotL;
+            // Linearly interpolate LOD based on roughness.
+            // This is a common heuristic.
+            float lod = u_Roughness * maxMipLevel;
+
+            vec3 sampledColor = textureLod(u_EnvironmentMap, L, lod).rgb;
+
+            // Clamp the sample to reduce fireflies (optional, but often helpful)
+            sampledColor = clamp(sampledColor, vec3(0.0), vec3(MAX_CLAMP_VALUE));
+
+            prefilteredColorSum += sampledColor * NdotL;
+            totalWeight += NdotL;
         }
     }
 
-    prefilteredColor = prefilteredColor / totalWeight;
-    FragColor = vec4(prefilteredColor, 1.0);
-}
+    vec3 finalPrefilteredColor = vec3(0.0);
+    if(totalWeight > 0.00001) { // Avoid division by zero
+        finalPrefilteredColor = prefilteredColorSum / totalWeight;
+    }
 
+    FragColor = vec4(finalPrefilteredColor, 1.0);
+}
